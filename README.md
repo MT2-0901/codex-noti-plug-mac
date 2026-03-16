@@ -1,6 +1,8 @@
 # AI Coding Agent macOS 桌面通知
 
-macOS 上为 AI 编程助手（Codex、Claude Code）添加桌面通知，让你在后台工作时不错过任何回答完成或审批请求。
+macOS 上为 AI 编程助手（Codex、Claude Code）添加桌面通知。**仅在终端窗口不在前台时通知**，避免你正在看终端时被打扰。
+
+支持终端：Warp / Terminal.app / iTerm2
 
 依赖：[terminal-notifier](https://github.com/julien-gauthier/terminal-notifier)
 
@@ -10,11 +12,24 @@ brew install terminal-notifier
 
 ---
 
+## 智能前台检测
+
+脚本在发送通知前会判断运行 agent 的终端窗口是否在前台：
+
+| 终端 | 检测方式 |
+|------|---------|
+| Terminal.app | 比较前台 Tab TTY 与自身 TTY |
+| iTerm2 | 比较前台 Session TTY 与自身 TTY |
+| Warp | 匹配前台窗口标题（含 `Claude` 或 `Codex`） |
+
+- 终端窗口在前台 → 不通知
+- 终端窗口不在前台（切到其他 App、或同一终端的其他窗口/Tab） → 通知
+
+---
+
 ## 1. Codex
 
 ### 1.1 放置通知脚本
-
-将 `notify-only-popup.sh` 复制到 `~/.codex/` 目录下，并赋予执行权限：
 
 ```bash
 cp notify-only-popup.sh ~/.codex/notify-only-popup.sh
@@ -23,29 +38,27 @@ chmod +x ~/.codex/notify-only-popup.sh
 
 ### 1.2 配置 Codex
 
-编辑 `~/.codex/config.toml`（没有就新建），在文件**最顶部**（任何 `[tui]` 或其他 `[section]` 之前）添加：
+编辑 `~/.codex/config.toml`（没有就新建），在文件**最顶部**添加：
 
 ```toml
 notify = ["/bin/bash", "/Users/你的用户名/.codex/notify-only-popup.sh"]
 ```
 
-### 1.3 通知效果
-
-| 事件 | 通知 |
-|------|------|
-| 任务完成（`agent-turn-complete`） | 弹窗 + 提示音 |
-
-### 1.4 测试
+### 1.3 测试
 
 ```bash
+# 在当前终端窗口运行 — 不应弹通知
 ~/.codex/notify-only-popup.sh '{"type":"agent-turn-complete","last-assistant-message":"测试通知"}'
+
+# 切到其他 App 后 5 秒触发 — 应弹通知
+sleep 5 && ~/.codex/notify-only-popup.sh '{"type":"agent-turn-complete","last-assistant-message":"测试通知"}'
 ```
 
 ---
 
 ## 2. Claude Code
 
-Claude Code 通过官方 hooks 机制支持通知，无需额外脚本。
+Codex 和 Claude Code 共用同一个 `notify-only-popup.sh` 脚本。
 
 ### 2.1 配置
 
@@ -60,7 +73,7 @@ Claude Code 通过官方 hooks 机制支持通知，无需额外脚本。
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -title '✅ Claude 完成' -message 'Claude 已完成回答，等待你的输入' -sound default"
+            "command": "bash /Users/你的用户名/.codex/notify-only-popup.sh"
           }
         ]
       }
@@ -71,7 +84,7 @@ Claude Code 通过官方 hooks 机制支持通知，无需额外脚本。
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -title '🔐 Claude 需要审批' -message '有工具调用需要你批准' -sound Ping"
+            "command": "CLAUDE_HOOK_EVENT=notification bash /Users/你的用户名/.codex/notify-only-popup.sh"
           }
         ]
       }
@@ -82,13 +95,27 @@ Claude Code 通过官方 hooks 机制支持通知，无需额外脚本。
 
 ### 2.2 通知效果
 
-| 事件 | Hook | 通知 |
-|------|------|------|
-| 回答完成 | `Stop` | 弹窗 + default 提示音 |
-| 需要审批工具调用 | `Notification`（`permission_prompt`） | 弹窗 + Ping 提示音 |
+| 事件 | 通知 |
+|------|------|
+| 回答完成（`Stop`） | "Claude 完成" 弹窗 + default 提示音 |
+| 需要审批（`Notification`） | "Claude 需要审批" 弹窗 + Ping 提示音 |
 
-### 2.3 说明
+### 2.3 测试
 
-- `Stop` hook：Claude 完成回答时触发
-- `Notification` hook + `permission_prompt` matcher：Claude 需要用户批准工具调用时触发
-- 配置修改后需要**重启 Claude Code 会话**才能生效
+```bash
+# 在当前终端窗口运行 — 不应弹通知
+bash ~/.codex/notify-only-popup.sh
+
+# 切到其他 App 后 5 秒触发 — 应弹通知
+sleep 5 && bash ~/.codex/notify-only-popup.sh
+```
+
+---
+
+## 调试
+
+日志文件：`/tmp/codex-notify-debug.log`
+
+```bash
+tail -f /tmp/codex-notify-debug.log
+```
